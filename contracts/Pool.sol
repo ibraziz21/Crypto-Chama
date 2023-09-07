@@ -54,6 +54,8 @@ contract Name {
 //This Stores the deposit amounts of each user in the pool
    mapping (uint => mapping(address=> uint)) public depositAmounts;
 
+
+
     constructor() {
         
     }
@@ -124,11 +126,43 @@ function joinPool(uint _id) external {
 //Owner can destroy the Pool, ONLY IF the Pool is not yet active
 //function here
 
+
+//internal functions
+function _useDeposit(uint _poolId,address _address) internal{
+//A deposit is used as the contribution amount
+    uint _contributionAmt = pool[_poolId].contributionPerParticipant;
+    depositAmounts[_poolId][_address]-=_contributionAmt;
+
+
+}
+
+
+//In the case where the pool is closed or ended, deposits are returned
+function _returnDeposits(uint _poolID) internal {
+    uint _recipients = _checkParticipantCount(_poolID);
+    address tkn = pool[_poolID].token;
+    IERC20 token  = IERC20(tkn);
+
+    for(uint i = 0; i < _recipients-1;){
+        address receiver = pool[_poolID].participants[i];
+        uint depositBal = depositAmounts[_poolID][receiver];
+        if(depositBal!=0){
+        token.transferFrom(address(this), receiver, depositBal);
+        }
+    unchecked {
+        i++;
+        }
+    }
+}
+
+
+//We check the number of participants in so many functions, so we have it as an internal function
 function _checkParticipantCount(uint _id) public view returns (uint) {
     uint count  = pool[_id].participants.length;
 
     return count;
 }
+
 
 function _calculateDeposit(uint _amount) internal pure returns (uint){
         return _amount*2;
