@@ -33,7 +33,8 @@ contract Name {
 
 
     */
-   uint counter;
+   uint poolCounter;
+
 
    struct PoolDetails {
     address owner;
@@ -41,21 +42,28 @@ contract Name {
     uint maxParticipants;
     uint contributionPerParticipant;
     uint durationPerTurn;
+    uint startTime;
+    uint currentTurn;
     address [] participants;
     mapping (address => bool) hasReceived;
     bool isActive;
-    uint startTime;
     bool isRestrictedPool;
-
    }
+   struct TurnDetails {
+        uint turnBal;
+        address currentClaimant;
+        bool active;
+        bool claimable;
+        mapping (address => uint) turnContributions;
+   }
+    //poolID => Turn ID => TurnDetails
+   mapping (uint =>mapping(uint => TurnDetails)) public turn;
 
    mapping (uint => PoolDetails) public pool;
 
 //This Stores the deposit amounts of each user in the pool
    mapping (uint => mapping(address=> uint)) public depositAmounts;
-
-
-
+ 
     constructor() {
         
     }
@@ -66,7 +74,7 @@ function createPool(address _tokenAddress, uint _maxParticipants, uint _contribu
     require (_contributionAmt!= 0, "Enter a valid Contribution Amount");
     require (_durationPerTurn!= 0, "Enter a valid Duration");
 
-    uint poolID = ++counter;
+    uint poolID = ++poolCounter;
     //Owner must send deposit equivalent to 2 contributions
     IERC20 token  = IERC20(_tokenAddress);
     uint deposit = _calculateDeposit(_contributionAmt);
@@ -76,7 +84,7 @@ function createPool(address _tokenAddress, uint _maxParticipants, uint _contribu
         require(token.approve(address(this), deposit), "Token approval failed");
     }
     token.transferFrom(msg.sender, address(this),deposit);
-    depositAmounts[counter][msg.sender] = deposit;
+    depositAmounts[poolID][msg.sender] = deposit;
 
     PoolDetails storage startPool = pool[poolID];
     startPool.owner = msg.sender;
@@ -87,6 +95,7 @@ function createPool(address _tokenAddress, uint _maxParticipants, uint _contribu
     startPool.participants.push(msg.sender);
     startPool.isRestrictedPool = _isRestricted;
     startPool.isActive = false;
+    startPool.currentTurn = 0;
 
     emit PoolStarted(poolID, msg.sender, _maxParticipants, _contributionAmt);
 }
@@ -118,9 +127,31 @@ function joinPool(uint _id) external {
     if(_joinpool.participants.length == maxPPL){
         _joinpool.isActive = true;
         _joinpool.startTime =block.timestamp;
+        _joinpool.currentTurn++;
     }
 
     emit JoinedPool(_id, msg.sender);    
+}
+
+function contributeToPool(uint _poolID, uint _amount)  external {
+    require(_isParticipant(_poolID,msg.sender), "Not a participant in this pool");
+    require(_amount == pool[_poolID].contributionPerParticipant,"Wrong Amount");
+
+
+
+
+    address tknAddress  = pool[_poolID].token;
+    IERC20 token  = IERC20(tknAddress);
+    if(token.balanceOf(msg.sender)<_amount) revert("Not Enough Tokens For the Deposit");
+    if (token.allowance(msg.sender, address(this)) < _amount) {
+        require(token.approve(address(this), _amount), "Token approval failed");
+    }
+    token.transferFrom(msg.sender, address(this),_amount);
+
+
+
+
+    
 }
 
 //Owner can destroy the Pool, ONLY IF the Pool is not yet active
@@ -128,12 +159,24 @@ function joinPool(uint _id) external {
 
 
 //internal functions
-function _useDeposit(uint _poolId,address _address) internal{
+function _contribute( uint _poolId,uint _turnId,uint _amount) internal {
+    address tknAddress  = pool[_poolId].token;
+    IERC20 token  = IERC20(tknAddress);
+    if(token.balanceOf(msg.sender)<_amount) revert("Not Enough Tokens For the Deposit");
+    if (token.allowance(msg.sender, address(this)) < _amount) {
+        require(token.approve(address(this), _amount), "Token approval failed");
+    }
+    token.transferFrom(msg.sender, address(this),_amount);
+
+    turn[_poolId][_turnId].turnBal+=_amount;
+    turn[_poolId][_turnId].turnContributions[msg.sender]=_amount;
+}
+function _useDeposit(uint _poolId,uint _turnId, address _address) internal{
 //A deposit is used as the contribution amount
     uint _contributionAmt = pool[_poolId].contributionPerParticipant;
     depositAmounts[_poolId][_address]-=_contributionAmt;
-
-
+    turn[_poolId][_turnId].turnBal+=_contributionAmt;
+    
 }
 
 
@@ -163,6 +206,21 @@ function _checkParticipantCount(uint _id) public view returns (uint) {
     return count;
 }
 
+function _isParticipant(uint _poolID, address _address) internal view returns(bool){
+    PoolDetails storage _pooldetails = pool[_poolID];
+    uint participants = _checkParticipantCount(_poolID);
+
+    for(uint i = 0; i<participants;){
+        address participant = _pooldetails.participants[i];
+        if(participant == _address){
+            return true;
+        } unchecked {
+            i++;
+        }
+
+    }
+    return false;
+}
 
 function _calculateDeposit(uint _amount) internal pure returns (uint){
         return _amount*2;
