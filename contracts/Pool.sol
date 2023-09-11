@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
 pragma solidity 0.8.17;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-contract Name {
+contract SavingsPool {
     event PoolStarted(uint poolid, address _poolOwner, uint maxParticipants, uint contributions);
     event JoinedPool(uint poolid, address _joiner);
     /* What can users do in this contract?
@@ -51,6 +51,7 @@ contract Name {
    }
    struct TurnDetails {
         uint turnBal;
+        uint endTime;
         address currentClaimant;
         bool active;
         bool claimable;
@@ -128,6 +129,8 @@ function joinPool(uint _id) external {
         _joinpool.isActive = true;
         _joinpool.startTime =block.timestamp;
         _joinpool.currentTurn++;
+        _setTurnDetails(_id);
+
     }
 
     emit JoinedPool(_id, msg.sender);    
@@ -136,22 +139,9 @@ function joinPool(uint _id) external {
 function contributeToPool(uint _poolID, uint _amount)  external {
     require(_isParticipant(_poolID,msg.sender), "Not a participant in this pool");
     require(_amount == pool[_poolID].contributionPerParticipant,"Wrong Amount");
+    uint turnId = pool[_poolID].currentTurn;
 
-
-
-
-    address tknAddress  = pool[_poolID].token;
-    IERC20 token  = IERC20(tknAddress);
-    if(token.balanceOf(msg.sender)<_amount) revert("Not Enough Tokens For the Deposit");
-    if (token.allowance(msg.sender, address(this)) < _amount) {
-        require(token.approve(address(this), _amount), "Token approval failed");
-    }
-    token.transferFrom(msg.sender, address(this),_amount);
-
-
-
-
-    
+    _contribute(_poolID, turnId, _amount); 
 }
 
 //Owner can destroy the Pool, ONLY IF the Pool is not yet active
@@ -170,6 +160,21 @@ function _contribute( uint _poolId,uint _turnId,uint _amount) internal {
 
     turn[_poolId][_turnId].turnBal+=_amount;
     turn[_poolId][_turnId].turnContributions[msg.sender]=_amount;
+}
+
+function _setTurnDetails(uint _poolId) internal {
+     //set the address to receive, endtime and activity
+     PoolDetails storage thisPool = pool[_poolId];
+     uint turnId = thisPool.currentTurn ;
+     uint timePerTurn = thisPool.durationPerTurn;
+     address turnBenefactor = thisPool.participants[turnId-1];
+
+     TurnDetails storage thisTurn = turn[_poolId][turnId];
+     thisTurn.currentClaimant = turnBenefactor;
+     thisTurn.endTime = block.timestamp+timePerTurn;
+     thisTurn.active = true;
+
+
 }
 function _useDeposit(uint _poolId,uint _turnId, address _address) internal{
 //A deposit is used as the contribution amount
