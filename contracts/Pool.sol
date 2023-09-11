@@ -56,6 +56,7 @@ contract SavingsPool {
         bool active;
         bool claimable;
         mapping (address => uint) turnContributions;
+        mapping (address => bool) hasContributed;
    }
     //poolID => Turn ID => TurnDetails
    mapping (uint =>mapping(uint => TurnDetails)) public turn;
@@ -141,8 +142,58 @@ function contributeToPool(uint _poolID, uint _amount)  external {
     require(_amount == pool[_poolID].contributionPerParticipant,"Wrong Amount");
     uint turnId = pool[_poolID].currentTurn;
 
+    require(turn[_poolID][turnId].hasContributed[msg.sender] == false, "User has already contributed to this turn");
+
     _contribute(_poolID, turnId, _amount); 
+
+
 }
+function claimTurn(uint _poolID) external {
+    // Check that the msg sender is part of the pool
+    require(_isParticipant(_poolID, msg.sender), "Not a participant in this pool");
+
+    // Get the current turn in the pool
+    uint currentTurn = pool[_poolID].currentTurn;
+
+    // Check if the beneficiary of the turn is the msg sender
+    address beneficiary = turn[_poolID][currentTurn].currentClaimant;
+    require(beneficiary == msg.sender, "It's not your turn to claim");
+
+    // Check if there is a balance deposit, and refill it
+    uint deposit = depositAmounts[_poolID][msg.sender];
+    uint contributionAmt = pool[_poolID].contributionPerParticipant;
+    uint expectedDep = contributionAmt*2;
+    uint bal;
+   
+    if(deposit<expectedDep){
+    // Refill the deposit with the claimant's amount
+    bal = expectedDep-deposit;
+    depositAmounts[_poolID][msg.sender] += bal;
+    turn[_poolID][currentTurn].turnBal -= bal;
+    }
+
+    // Send remaining tokens to msg sender
+    address tokenAddress = pool[_poolID].token;
+    IERC20 token = IERC20(tokenAddress);
+    uint remainingTokens = turn[_poolID][currentTurn].turnBal;
+
+    // Transfer remaining tokens to the claimant
+    if (remainingTokens > 0) {
+        token.transfer(msg.sender, remainingTokens);
+    }
+
+    // Mark the turn as claimed
+    turn[_poolID][currentTurn].active = false;
+
+    // If the claimant is the last recipient, set the pool to not active
+    if (currentTurn == pool[_poolID].participants.length) {
+        pool[_poolID].isActive = false;
+        // Return deposits to participants
+        _returnDeposits(_poolID);
+    }
+}
+
+
 
 //Owner can destroy the Pool, ONLY IF the Pool is not yet active
 //function here
@@ -160,6 +211,7 @@ function _contribute( uint _poolId,uint _turnId,uint _amount) internal {
 
     turn[_poolId][_turnId].turnBal+=_amount;
     turn[_poolId][_turnId].turnContributions[msg.sender]=_amount;
+    turn[_poolId][_turnId].hasContributed[msg.sender] = true;
 }
 
 function _setTurnDetails(uint _poolId) internal {
