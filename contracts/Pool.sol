@@ -77,9 +77,10 @@ function createPool(address _tokenAddress, uint _maxParticipants, uint _contribu
     require (_durationPerTurn!= 0, "Enter a valid Duration");
 
     uint poolID = ++poolCounter;
+    uint contributionInEth = _contributionAmt*10**18;
     //Owner must send deposit equivalent to 2 contributions
     IERC20 token  = IERC20(_tokenAddress);
-    uint deposit = _calculateDeposit(_contributionAmt);
+    uint deposit = _calculateDeposit(contributionInEth);
 
     if(token.balanceOf(msg.sender)<deposit) revert("Not Enough Tokens For the Deposit");
     if (token.allowance(msg.sender, address(this)) < deposit) {
@@ -137,9 +138,11 @@ function joinPool(uint _id) external {
     emit JoinedPool(_id, msg.sender);    
 }
 
-function contributeToPool(uint _poolID, uint _amount)  external {
+function contributeToPool(uint _poolID)  external {
     require(_isParticipant(_poolID,msg.sender), "Not a participant in this pool");
-    require(_amount == pool[_poolID].contributionPerParticipant,"Wrong Amount");
+    
+    uint _amount = pool[_poolID].contributionPerParticipant;
+
     uint turnId = pool[_poolID].currentTurn;
 
     require(turn[_poolID][turnId].hasContributed[msg.sender] == false, "User has already contributed to this turn");
@@ -263,7 +266,7 @@ function _checkParticipantCount(uint _id) public view returns (uint) {
     return count;
 }
 
-function _isParticipant(uint _poolID, address _address) internal view returns(bool){
+function _isParticipant(uint _poolID, address _address) public view returns(bool){
     PoolDetails storage _pooldetails = pool[_poolID];
     uint participants = _checkParticipantCount(_poolID);
 
