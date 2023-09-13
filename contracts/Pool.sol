@@ -1,39 +1,15 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
 pragma solidity 0.8.17;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "./management.sol";
 contract SavingsPool {
     event PoolStarted(uint poolid, address _poolOwner, uint maxParticipants, uint contributions);
     event JoinedPool(uint poolid, address _joiner);
-    /* What can users do in this contract?
-    - Users can Create a saving pool
-        - Owner of the pool sets the rules, including the tokens used, maximum participants
-          amount contributed per round, Open or closed pool
-        - The Pool has a bool isActive to set the pool to start, and a timestamp once the pool is started to begin      
-        - User can set a list of addresses that can participate in their pools
-        - User can set a start Date, if the threshold of participants is met, the Pool automatically starts. If Not, Pool Users get their Deposits back and pool is destroyed
-
-    -Users joining Pools
-        - Users are checked that they are not blacklisted for defaulting
-        - Users are checked if their address is allowed to participate by the owner (If Closed Pool)
-        - User pays deposit equivalent to 2 turns contribution
-        - User gets added to the pool, notified on frontend when pool starts
-
-    -Contributions
-        - User Gets notified when turn starts
-        - Users have a set time to make contribution, else the one deposit amount is added to the turn.
-        - If user contributes after, amount is set to be the deposit 
-        - If user does not contribute by that time, User is halted from the pool, blacklisted and second deposit taken to compensate fellow participants
-
-    -Claim turn
-        -Check if it is user's turn to claim
-        -Check that the user is not halted
-        -User Claims available funds from turn
-        -Mark as received.
-        -If User is last recepient, set Pool to not active, return Deposits to Participants
-
-
-    */
-   uint poolCounter;
+   
+    ManagementContract mgmt;
+    address public owner;
+    uint public poolCounter;
+   
 
 
    struct PoolDetails {
@@ -66,8 +42,11 @@ contract SavingsPool {
 //This Stores the deposit amounts of each user in the pool
    mapping (uint => mapping(address=> uint)) public depositAmounts;
  
-    constructor() {
-        
+    constructor(address _mgmt) {
+        require(_mgmt != address(0),"Invalid Contract Address");
+
+        mgmt = ManagementContract(_mgmt);
+        owner = msg.sender;
     }
 
 function createPool(address _tokenAddress, uint _maxParticipants, uint _contributionAmt,uint _durationPerTurn, bool _isRestricted) external {
@@ -108,9 +87,18 @@ function joinPool(uint _id) external {
     uint maxPPL = pool[_id].maxParticipants;
     require(_checkParticipantCount(_id)!= maxPPL, "Pool Filled");
 
+    //check if the address joining is blacklisted
+    require(!mgmt.isBlacklisted(msg.sender), "You are blacklisted from the pool for defaulting");
+
     PoolDetails storage _joinpool =pool[_id];
     uint deposit = _calculateDeposit(_joinpool.contributionPerParticipant);
     address tknAddress = _joinpool.token;
+
+    if(_joinpool.isRestrictedPool){
+        address pOwner = _joinpool.owner;
+        bool status = mgmt._checkStatus(pOwner,msg.sender);
+        require(status == true, "You are not allowed in this pool");
+    }
 
     IERC20 token = IERC20(tknAddress);
     
@@ -149,7 +137,7 @@ function contributeToPool(uint _poolID)  external {
 
     _contribute(_poolID, turnId, _amount); 
 
-
+    _updateTurn(_poolID);
 }
 function claimTurn(uint _poolID) external {
     // Check that the msg sender is part of the pool
@@ -194,6 +182,7 @@ function claimTurn(uint _poolID) external {
         // Return deposits to participants
         _returnDeposits(_poolID);
     }
+    _updateTurn(_poolID);
 }
 
 
@@ -202,6 +191,34 @@ function claimTurn(uint _poolID) external {
 //function here
 
 
+
+//In the case where the pool is closed or ended, deposits are returned
+
+
+
+//We check the number of participants in so many functions, so we have it as an internal function
+function _checkParticipantCount(uint _id) public view returns (uint) {
+    uint count  = pool[_id].participants.length;
+
+    return count;
+}
+
+function _isParticipant(uint _poolID, address _address) public view returns(bool){
+    PoolDetails storage _pooldetails = pool[_poolID];
+    uint participants = _checkParticipantCount(_poolID);
+
+    for(uint i = 0; i<participants;){
+        address participant = _pooldetails.participants[i];
+        if(participant == _address){
+            return true;
+        } unchecked {
+            i++;
+        }
+
+    }
+    return false;
+    
+}
 //internal functions
 function _contribute( uint _poolId,uint _turnId,uint _amount) internal {
     address tknAddress  = pool[_poolId].token;
@@ -231,6 +248,31 @@ function _setTurnDetails(uint _poolId) internal {
 
 
 }
+function _updateTurn(uint _poolId) internal {
+
+     PoolDetails storage thisPool = pool[_poolId];
+     address []  memory _addresses = thisPool.participants;
+     uint participantNo = _addresses.length;
+     uint turnId =  thisPool.currentTurn;
+     if(turn[_poolId][turnId].endTime < block.timestamp){
+    for (uint i = 0; i < participantNo;) {
+        address current = _addresses[i];
+
+        //use deposit if they have the deposits
+        if(!turn[_poolId][turnId].hasContributed[current] && 
+        depositAmounts[_poolId][current]>= thisPool.contributionPerParticipant ){
+            _useDeposit(_poolId, turnId, current);
+        }else if(!turn[_poolId][turnId].hasContributed[current] && 
+        depositAmounts[_poolId][current] < thisPool.contributionPerParticipant){
+            //If both deposits are used, address is blacklisted from participating again
+            mgmt.blacklistAddress(current);
+        }
+    }
+    thisPool.currentTurn++;
+     _setTurnDetails(_poolId);
+     }
+
+}
 function _useDeposit(uint _poolId,uint _turnId, address _address) internal{
 //A deposit is used as the contribution amount
     uint _contributionAmt = pool[_poolId].contributionPerParticipant;
@@ -240,7 +282,6 @@ function _useDeposit(uint _poolId,uint _turnId, address _address) internal{
 }
 
 
-//In the case where the pool is closed or ended, deposits are returned
 function _returnDeposits(uint _poolID) internal {
     uint _recipients = _checkParticipantCount(_poolID);
     address tkn = pool[_poolID].token;
@@ -256,30 +297,6 @@ function _returnDeposits(uint _poolID) internal {
         i++;
         }
     }
-}
-
-
-//We check the number of participants in so many functions, so we have it as an internal function
-function _checkParticipantCount(uint _id) public view returns (uint) {
-    uint count  = pool[_id].participants.length;
-
-    return count;
-}
-
-function _isParticipant(uint _poolID, address _address) public view returns(bool){
-    PoolDetails storage _pooldetails = pool[_poolID];
-    uint participants = _checkParticipantCount(_poolID);
-
-    for(uint i = 0; i<participants;){
-        address participant = _pooldetails.participants[i];
-        if(participant == _address){
-            return true;
-        } unchecked {
-            i++;
-        }
-
-    }
-    return false;
 }
 
 function _calculateDeposit(uint _amount) internal pure returns (uint){
