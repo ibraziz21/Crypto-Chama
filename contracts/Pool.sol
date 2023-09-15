@@ -5,13 +5,15 @@ import "./management.sol";
 contract SavingsPool {
     event PoolStarted(uint poolid, address _poolOwner, uint maxParticipants, uint contributions);
     event JoinedPool(uint poolid, address _joiner);
+    event UserClaim(uint poolId, uint turnId, address _address, uint amountClaimed );
+    event UserContributed();
    
     ManagementContract mgmt;
     address public owner;
     uint public poolCounter;
    
 
-
+    //Struct storing the pool Details 
    struct PoolDetails {
     address owner;
     address token;
@@ -25,6 +27,8 @@ contract SavingsPool {
     bool isActive;
     bool isRestrictedPool;
    }
+
+   //Struct storing the turn details within a pool
    struct TurnDetails {
         uint turnBal;
         uint endTime;
@@ -49,6 +53,7 @@ contract SavingsPool {
         owner = msg.sender;
     }
 
+//function allows for users to create pools
 function createPool(address _tokenAddress, uint _maxParticipants, uint _contributionAmt,uint _durationPerTurn, bool _isRestricted) external {
     require(_tokenAddress!=address(0), "Invalid token");
     require (_maxParticipants!= 0,"Pool Needs a Valid number of Participants");
@@ -82,6 +87,8 @@ function createPool(address _tokenAddress, uint _maxParticipants, uint _contribu
     emit PoolStarted(poolID, msg.sender, _maxParticipants, _contributionAmt);
 }
 
+
+//Function to join a Savings Pool
 function joinPool(uint _id) external {
     //Check that the pool is not full
     uint maxPPL = pool[_id].maxParticipants;
@@ -94,6 +101,7 @@ function joinPool(uint _id) external {
     uint deposit = _calculateDeposit(_joinpool.contributionPerParticipant);
     address tknAddress = _joinpool.token;
 
+//If the pool is restricted, Only addresses that are Friendlies of the owner can join the pool
     if(_joinpool.isRestrictedPool){
         address pOwner = _joinpool.owner;
         bool status = mgmt._checkStatus(pOwner,msg.sender);
@@ -126,6 +134,7 @@ function joinPool(uint _id) external {
     emit JoinedPool(_id, msg.sender);    
 }
 
+//External Function that allows a user to contribute to the pool
 function contributeToPool(uint _poolID)  external {
     require(_isParticipant(_poolID,msg.sender), "Not a participant in this pool");
     
@@ -139,6 +148,7 @@ function contributeToPool(uint _poolID)  external {
 
     _updateTurn(_poolID);
 }
+
 function claimTurn(uint _poolID) external {
     // Check that the msg sender is part of the pool
     require(_isParticipant(_poolID, msg.sender), "Not a participant in this pool");
@@ -175,6 +185,7 @@ function claimTurn(uint _poolID) external {
 
     // Mark the turn as claimed
     turn[_poolID][currentTurn].active = false;
+         emit UserClaim(_poolID,currentTurn,msg.sender, bal );
 
     // If the claimant is the last recipient, set the pool to not active
     if (currentTurn == pool[_poolID].participants.length) {
@@ -182,6 +193,7 @@ function claimTurn(uint _poolID) external {
         // Return deposits to participants
         _returnDeposits(_poolID);
     }
+   
     _updateTurn(_poolID);
 }
 
