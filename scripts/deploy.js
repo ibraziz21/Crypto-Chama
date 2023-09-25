@@ -4,25 +4,23 @@
 // You can also run a script with `npx hardhat run <script>`. If you do that, Hardhat
 // will compile your contracts, add the Hardhat Runtime Environment's members to the
 // global scope, and execute the script.
+const { ethers } = require("hardhat");
 const hre = require("hardhat");
 
 async function main() {
-  const currentTimestampInSeconds = Math.round(Date.now() / 1000);
-  const unlockTime = currentTimestampInSeconds + 60;
+  // const management = await ethers.deployContract("ManagementContract", {gasLimit: 0x200000})
+  // const addr = await management.getAddress()
+  // console.log("Management Contract Address ", addr)
 
-  const lockedAmount = hre.ethers.parseEther("0.001");
+  const pool = await ethers.deployContract("SavingsPool", ['0x035e9C0E58C649775407B468b724ab8796dCE575'],  {gasLimit: 0x300000});
 
-  const lock = await hre.ethers.deployContract("Lock", [unlockTime], {
-    value: lockedAmount,
-  });
+  const sAddr = await pool.getAddress();
+  console.log("Pool Contract CA:", sAddr);
 
-  await lock.waitForDeployment();
+  // const token = await ethers.deployContract("poolToken", {gasLimit: 0x200000})
 
-  console.log(
-    `Lock with ${ethers.formatEther(
-      lockedAmount
-    )}ETH and unlock timestamp ${unlockTime} deployed to ${lock.target}`
-  );
+  // const tAddr = await token.getAddress();
+  // console.log("Governance Token: ", tAddr);
 }
 
 // We recommend this pattern to be able to use async/await everywhere
