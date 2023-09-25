@@ -52,7 +52,7 @@ contract ManagementContract {
         }
     }
 
-    function blacklistAddress(address _address) public {
+    function blacklistAddress(address _address) private  {
         require(_address != address(0), "Invalid Address");
         require(!isBlacklisted[_address], "The address is already blacklisted");
         isBlacklisted[_address] = true;
